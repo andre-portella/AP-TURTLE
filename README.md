@@ -3,9 +3,6 @@
 
 Este repositório contém o script \`uncertain_samples.py\`, que permite identificar as amostras mais incertas rotuladas pelo **TURTLE**, um método de aprendizado de representação e clustering.
 
-As amostras incertas podem ser úteis para **análise exploratória**, **active learning** ou **seleção de amostras para rotulagem adicional**.
-
-
 ## Estrutura do script
 
 O script recebe três parâmetros principais:
