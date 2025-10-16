@@ -159,36 +159,63 @@ def main():
         match = np.zeros(D, dtype=np.int64)
         for r, c in zip(row_ind, col_ind):
             match[r] = c
+            
         # match = [2, 1, 0]
         # significa:
         # se cluster = 0, ele corresponde à classe real 2
         # se cluster = 1, ele corresponde à classe real 1
         # se cluster = 2, ele corresponde à classe real 0
 
+        # Criar o mapeamento inverso: da classe real -> cluster predito
+        inverse_match = np.zeros_like(match)
+        for pred, real in enumerate(match):
+            inverse_match[real] = pred
 
-        
-
+        # ===========================================================
+        # 5a. Alinhar previsões
+        # ===========================================================
         # Alinhar previsões
-        labels_train_indices = match[pred_labels_train]
+        labels_train_aligned = match[pred_labels_train]
         # Exemplo:
         # pred_labels_train = [1, 1, 0]
         # match = [2, 1, 0] ==> 0 vira 2; 1 vira 1; 2 vira 0
         # labels_train_indices = [1, 1, 2]
 
         # Substituir amostras mais incertas pelos labels reais
-        labels_train_indices[indices_mais_incertos] = y_gt_train[indices_mais_incertos]
+        labels_train_aligned[indices_mais_incertos] = y_gt_train[indices_mais_incertos]
+
+
+        # ===========================================================
+        # 5b. Criar versões alinhada e não alinhada
+        # ===========================================================
+
+        # Versão: não alinhada (sem aplicar o match)
+        labels_train_original = pred_labels_train.copy()
+
+        # Converter rótulos reais (ground truth) para o espaço dos clusters originais
+        y_gt_train_aligned_to_original = inverse_match[y_gt_train]
+
+        # Substituir amostras mais incertas pelos rótulos reais convertidos
+        labels_train_original[indices_mais_incertos] = y_gt_train_aligned_to_original[indices_mais_incertos]
+
+                
         # Converter para tensor LongTensor para cross_entropy
-        labels_train_tensor = torch.from_numpy(labels_train_indices).long().to(device)
+        labels_train_aligned_tensor = torch.from_numpy(labels_train_aligned).long().to(device)
+        labels_train_original_tensor = torch.from_numpy(labels_train_original).long().to(device)
+
 
         # ===========================================================
         # 6. Salvar representações combinadas de TREINO
         # ===========================================================
-        representations_combined_train = [labels_train_tensor] + Zs_train_torch
-        save_train = f"{root_dir}/results/{len(phis)}space/{'_'.join(phis)}/representations_combined_{dataset}_train.pt"
-        os.makedirs(os.path.dirname(save_train), exist_ok=True)
-        torch.save(representations_combined_train, save_train)
-        print(f"Salvo: {save_train}")
+        save_dir = f"{root_dir}/results/{len(phis)}space/{'_'.join(phis)}/"
+        os.makedirs(save_dir, exist_ok=True)
 
+        torch.save(labels_train_aligned_tensor, os.path.join(save_dir, f"labels_train_aligned_{dataset}.pt"))
+        torch.save(labels_train_original_tensor, os.path.join(save_dir, f"labels_train_original_{dataset}.pt"))
+
+        print(f"\nArquivos salvos:")
+        print(f" - Alinhado com ground truth: {os.path.join(save_dir, f'labels_train_aligned_{dataset}.pt')}")
+        print(f" - Original (não alinhado):  {os.path.join(save_dir, f'labels_train_original_{dataset}.pt')}")
         # # ===========================================================
         # # 7. Salvar representações combinadas de TESTE
         # # ===========================================================
