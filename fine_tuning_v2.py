@@ -92,103 +92,74 @@ def finetune(
     # ------------------------------------------------------------
     # Loop de treinamento (outer loop)
     # ------------------------------------------------------------
-    iters = epochs
-    for it in range(iters):
-        # Seleciona um batch aleatório
-        indices = np.random.choice(n_tr, size=batch_size, replace=False)
-        Zs_tr = [torch.from_numpy(Z_train[indices]).to(device) for Z_train in Zs_train]
+    
+    num_epochs = epochs
+    n_batches = int(np.ceil(n_tr / batch_size))
 
-        # Predições do task encoder no batch
-        labels_batch_pred, label_per_space_batch = task_encoding(Zs_tr, task_encoder)
+    for epoch in range(num_epochs):
+        # embaralha os índices a cada época
+        perm = np.random.permutation(n_tr)
 
-        # Seleciona os rótulos fixos e máscara correspondente
-        labels_fixed_batch = labels_train_tensor[indices].to(device)
-        mask_fixed_batch = mask_fixed_full[indices].to(device)
+        for b in range(n_batches):
+            start = b * batch_size
+            end = min((b + 1) * batch_size, n_tr)
+            indices = perm[start:end]
 
-        # One-hot dos rótulos fixos
-        labels_onehot_batch = F.one_hot(labels_fixed_batch.clamp(min=0), num_classes=C).float()
+            Zs_tr = [torch.from_numpy(Z_train[indices]).to(device) for Z_train in Zs_train]
 
-        # Combina rótulos fixos (onde existem) e predições (onde não há correção)
-        combined_labels_inner = torch.where(
-            mask_fixed_batch.unsqueeze(1),
-            labels_onehot_batch,
-            labels_batch_pred.detach()
-        )
+            # Predições do task encoder no batch
+            labels_batch_pred, label_per_space_batch = task_encoding(Zs_tr, task_encoder)
 
-        # ------------------------------------------------------------
-        # Inner loop: ajusta W_in para aproximar combined_labels_inner
-        # ------------------------------------------------------------
-        if not warm_start:
-            W_in, inner_opt = init_inner(feature_dims, C, inner_lr, device)
+            # Seleciona os rótulos fixos e máscara correspondente
+            labels_fixed_batch = labels_train_tensor[indices].to(device)
+            mask_fixed_batch = mask_fixed_full[indices].to(device)
 
-        for _ in range(M):
-            inner_opt.zero_grad()
-            # cross-entropy
-            # loss_inner = sum([
-            #     -(combined_labels_inner * F.log_softmax(w_in(z), dim=1)).sum(dim=1).mean()
-            #     for w_in, z in zip(W_in, Zs_tr)
-            # ])
+            labels_onehot_batch = F.one_hot(labels_fixed_batch.clamp(min=0), num_classes=C).float()
 
-            loss_inner = sum([F.cross_entropy(w_in(z_tr), combined_labels_inner.detach()) for w_in, z_tr in zip(W_in, Zs_tr)])
-            loss_inner.backward()
-            inner_opt.step()
+            combined_labels_inner = torch.where(
+                mask_fixed_batch.unsqueeze(1),
+                labels_onehot_batch,
+                labels_batch_pred.detach()
+            )
 
-        # ------------------------------------------------------------
-        # Outer loop: atualiza o task encoder
-        # ------------------------------------------------------------
-        optimizer.zero_grad()
+            # Inner loop
+            if not warm_start:
+                W_in, inner_opt = init_inner(feature_dims, C, inner_lr, device)
 
-        # Perda de outer: comparação entre predições do encoder e saída dos classificadores
-        # loss_outer = sum([
-        #     -(labels_batch_pred * F.log_softmax(w_in(z).detach(), dim=1)).sum(dim=1).mean()
-        #     for w_in, z in zip(W_in, Zs_tr)
-        # ])
+            for _ in range(M):
+                inner_opt.zero_grad()
+                loss_inner = sum([
+                    F.cross_entropy(w_in(z_tr), combined_labels_inner.detach())
+                    for w_in, z_tr in zip(W_in, Zs_tr)
+                ])
+                loss_inner.backward()
+                inner_opt.step()
 
-        loss_outer = sum([F.cross_entropy(w_in(z_tr).detach(), labels_batch_pred) for w_in, z_tr in zip(W_in, Zs_tr)])
+            # Outer loop
+            optimizer.zero_grad()
+            loss_outer = sum([
+                F.cross_entropy(w_in(z_tr).detach(), labels_batch_pred)
+                for w_in, z_tr in zip(W_in, Zs_tr)
+            ])
 
-        # loss_outer = sum([
-        #     -(labels_batch_pred * F.log_softmax(w_in(z).detach(), dim=1)).sum(dim=1).mean()
-        #     for w_in, z in zip(W_in, Zs_tr)
-        # ])
+            entr_reg = sum([torch.special.entr(l.mean(0)).sum() for l in label_per_space_batch])
+            loss_final = loss_outer - (gamma * entr_reg if gamma is not None else 0.0)
+            loss_final.backward()
+            optimizer.step()
 
-        # Regularização por entropia (promove diversidade de classes)
-        entr_reg = sum([torch.special.entr(l.mean(0)).sum() for l in label_per_space_batch])
-
-        # Perda total
-        loss_final = loss_outer - (gamma * entr_reg if gamma is not None else 0.0)
-
-        loss_final.backward()
-        optimizer.step()
-
-        # ------------------------------------------------------------
-        # Avaliação intermediária
-        # ------------------------------------------------------------
-        if (it + 1) % max(1, iters // 20) == 0 or (it + 1) == iters:
-            with torch.no_grad():
-                labels_val, _ = task_encoding([torch.from_numpy(Z_val_i).to(device) for Z_val_i in Zs_val], task_encoder)
-                preds_val = labels_val.argmax(dim=1).cpu().numpy()
-                cluster_acc, _ = get_cluster_acc(preds_val, y_gt_val)
-
-            # tqdm.write(
-            #     f'Iter {it+1}/{iters}: '
-            #     f'inner_loss {loss_inner.detach().item():.4f}, '
-            #     f'outer_loss {loss_outer.detach().item():.4f}, '
-            #     f'entropy_reg {entr_reg.detach().item():.4f}, '
-            #     f'cluster_acc {cluster_acc:.4f}'
-            # )
-
-    # ------------------------------------------------------------
-    # Avaliação final
-    # ------------------------------------------------------------
+    # ==================================================
+        # Avaliação no final de cada época
+    # ==================================================
     with torch.no_grad():
         labels_val, _ = task_encoding(
             [torch.from_numpy(Z_val_i).to(device) for Z_val_i in Zs_val],
             task_encoder
         )
         preds_val = labels_val.argmax(dim=1).cpu().numpy()
-        acc_val, _ = get_cluster_acc(preds_val, y_gt_val)
+        cluster_acc, _ = get_cluster_acc(preds_val, y_gt_val)
 
-    return acc_val
+    return cluster_acc
+
 
 
 
