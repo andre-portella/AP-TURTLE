@@ -23,7 +23,7 @@ python uncertain_samples.py --dataset <DATASET> --phis <ESPAÇO1> <ESPAÇO2> --n
 
 ### Exemplo de uso
 
-Selecionar 10% amostras incertas do dataset `stl10` usando os espaços de representação `ResNet50`:
+Selecionar 10% amostras incertas do dataset `stl10` usando o espaço de representação `ResNet50`:
 
 ```bash
 python uncertain_samples.py --dataset stl10 --phis clipRN50 --k 10
@@ -41,7 +41,7 @@ O script retorna uma lista de amostras incertas.
 
 # Fine-Tuning (versão 2)
 
-Este repositório contém o script `fine_tuning_v2.py`, que permite identificar as amostras mais incertas rotuladas pelo **TURTLE**.
+Este repositório contém o script `fine_tuning_v2.py`, que realiza o ajuste fino do **TURTLE**.
 
 
 ## Estrutura do script
@@ -62,7 +62,7 @@ python fine_tuning_new.py --dataset <DATASET> --phis <ESPAÇO1> <ESPAÇO2> --k <
 
 ### Exemplo de uso
 
-Selecionar 10% amostras incertas do dataset \`stl10\` usando os espaços de representação `ResNet50`:
+Fine-tuning do `stl10`, considerando a rotulação de 10% das amostras incertas e o uso do espaço de representação `ResNet50`:
 
 ```bash
 python fine_tuning_new.py --dataset stl10 --phis clipRN50  --k 10
