@@ -18,7 +18,7 @@ O script recebe três parâmetros principais:
 Para executar o script, use o seguinte comando:
 
 ```bash
-python uncertain_samples.py --dataset <DATASET> --phis <ESPAÇO1> <ESPAÇO2> --num_samples <NÚMERO_DE_AMOSTRAS>
+python uncertain_samples.py --dataset <DATASET> --phis <ESPAÇO1> <ESPAÇO2> --num_samples <%>
 ```
 
 ### Exemplo de uso
