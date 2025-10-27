@@ -23,7 +23,7 @@ python uncertain_samples.py --dataset <DATASET> --phis <ESPAÇO1> <ESPAÇO2> --n
 
 ### Exemplo de uso
 
-Selecionar 10 amostras incertas do dataset \`stl10\` usando os espaços de representação `ResNet50`:
+Selecionar 10% amostras incertas do dataset `stl10` usando os espaços de representação `ResNet50`:
 
 ```bash
 python uncertain_samples.py --dataset stl10 --phis clipRN50 --k 10
