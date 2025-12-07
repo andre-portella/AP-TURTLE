@@ -4,7 +4,7 @@ Este repositório reúne o código, experimentos e análises desenvolvidos para 
 
 Os principais trabalhos de referência são:
 
-- **Low Budget Active Label Query through Commonality and Diversity** — *Saltori et al.*  
+- **Low Budget Label Query** — *Saltori et al.*  
 - **TURTLE** — Método para clustering e seleção de amostras usando múltiplos espaços de features.
 
 ---
