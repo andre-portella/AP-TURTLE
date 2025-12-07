@@ -1,69 +1,165 @@
+# Projeto da Disciplina de Aprendizado Profundo para Reconhecimento Visual
 
-# Uncertain Samples
+Este repositório reúne o código, experimentos e análises desenvolvidos para a disciplina de **Aprendizado Profundo**, com foco em métodos modernos de **clustering**, **seleção ativa de amostras** e **aprendizado com múltiplos espaços de representação**.
 
-Este repositório contém o script `uncertain_samples.py`, que permite identificar as amostras mais incertas rotuladas pelo **TURTLE**, um método de aprendizado de representação e clustering.
+Os principais trabalhos de referência são:
 
-## Estrutura do script
-
-O script recebe três parâmetros principais:
-
-- `--dataset` : Nome do dataset a ser usado (ex.: \`stl10\`, \`cifar10\`)  
-- `--phis` : Lista de espaços de features que serão utilizados (ex.: \`clipvitL14 dinov2\`)  
-- `--k` : Porcentagem de amostras rotuladas manualmente 
+- **Low Budget Active Label Query through Commonality and Diversity** — *Saltori et al.*  
+- **TURTLE** — Método para clustering e seleção de amostras usando múltiplos espaços de features.
 
 ---
 
-## Uso
+# 1. Visão Geral do Pipeline
 
-Para executar o script, use o seguinte comando:
+O pipeline completo envolve as seguintes etapas:
 
-```bash
-python uncertain_samples.py --dataset <DATASET> --phis <ESPAÇO1> <ESPAÇO2> --num_samples <%>
-```
-
-### Exemplo de uso
-
-Selecionar 10% amostras incertas do dataset `stl10` usando o espaço de representação `ResNet50`:
-
-```bash
-python uncertain_samples.py --dataset stl10 --phis clipRN50 --k 10
-```
-
-> **Observação:** É necessário **executar previamente o TURTLE** com o mesmo dataset e espaços de features antes de rodar este script, para que os embeddings e checkpoints estejam disponíveis.
+1. Extração das representações (ResNet-18, VGG-11 e DIALNet)  
+2. Extração dos rótulos  
+3. Execução do TURTLE  
+4. Seleção de amostras incertas  
+5. Ajuste fino (Fine-Tuning)  
+6. Análises e visualizações
 
 ---
 
-## Estrutura de saída
+# 2. Extração das Representações
 
-O script retorna uma lista de amostras incertas.
+As representações devem ser pré-computadas antes de executar o TURTLE.
 
-
-
-# Fine-Tuning (versão 2)
-
-Este repositório contém o script `fine_tuning_v2.py`, que realiza o ajuste fino do **TURTLE**.
-
-
-## Estrutura do script
-
-O script recebe três parâmetros principais:
-
-- `--dataset` : Nome do dataset a ser usado (ex.: \`stl10\`, \`cifar10\`)  
-- `--phis` : Lista de espaços de features que serão utilizados (ex.: \`clipvitL14 dinov2\`)  
-- `--k` : Porcentagem de amostras rotuladas manualmente 
-
-
-Para executar o script, use o seguinte comando:
-
+## CIFAR-9
 ```bash
-python fine_tuning_new.py --dataset <DATASET> --phis <ESPAÇO1> <ESPAÇO2> --k <%>
+python precompute_representations.py --dataset cifar9 --phis resnet18
+python precompute_representations.py --dataset cifar9 --phis vgg11
 ```
 
+## STL-9
+```bash
+python precompute_representations.py --dataset stl9 --phis resnet18
+python precompute_representations.py --dataset stl9 --phis vgg11
+```
 
-### Exemplo de uso
+---
 
-Fine-tuning do `stl10`, considerando a rotulação de 10% das amostras incertas e o uso do espaço de representação `ResNet50`:
+# 3. Extração dos Rótulos
+
+## CIFAR-9
+```bash
+python precompute_labels.py --dataset cifar9
+```
+
+## STL-9
+```bash
+python precompute_labels.py --dataset stl9
+```
+
+---
+
+# 4. Representações da DIALNet
+
+Para comparação direta com *Saltori et al.*, é necessário extrair as representações da **DIALNet**.
+
+### Passo 1 — Acessar o diretório
+```
+low_budget_label_query
+```
+
+### Passo 2 — Executar `digits.py` em modo *single*
+
+- Target = STL-9  → Source = CIFAR-9  
+- Target = CIFAR-9 → Source = STL-9  
+
+Exemplo:
 
 ```bash
-python fine_tuning_new.py --dataset stl10 --phis clipRN50  --k 10
+python digits.py --root data/digits --source STL9 --target CIFAR9     --arch dialnet --mode single --scorer entropy --sampler random
 ```
+
+> *Observação:* `scorer` e `sampler` não são usados no modo single, mas devem ser fornecidos para evitar erros.
+
+### Passo 3 — Extrair as features com o modelo treinado
+
+```bash
+python extract_features.py --source STL9 --target CIFAR9     --data-root data/digits --num-classes 9     --model-arch-type cifar9-stl9
+```
+
+As representações serão salvas em `data/`.
+
+---
+
+# 5. Execução do TURTLE
+
+Após extrair as representações, o TURTLE pode ser executado:
+
+```bash
+python run_turtle.py --dataset <DATASET> --phis <MODELO>
+```
+
+### Exemplo
+```bash
+python run_turtle.py --dataset cifar9 --phis vgg11
+```
+
+---
+
+# 6. Seleção de Amostras Incertas
+
+O script `uncertain_samples.py` identifica as amostras mais incertas geradas pelo TURTLE.
+
+Ele realiza seleções em **valores absolutos** (1, 10, 100, 1000) e **percentuais** (0.1%, 1%, 10%, 20%), considerando três estratégias:
+
+- **Aleatória**  
+- **Mais incertas**  
+- **Uniforme**  
+
+### Uso
+```bash
+python uncertain_samples.py --dataset <DATASET> --phis <ESPAÇO1> <ESPAÇO2>
+```
+
+### Exemplo
+```bash
+python uncertain_samples.py --dataset stl9 --phis resnet18
+```
+
+> O TURTLE deve ter sido executado antes para gerar embeddings e checkpoints.
+
+---
+
+# 7. Ajuste Fino (Fine-Tuning)
+
+O script `fine_tuning.py` realiza o ajuste fino com base nas amostras selecionadas.  
+Os resultados são salvos automaticamente, incluindo métricas e hiperparâmetros:
+
+- Estratégia de seleção  
+- Quantidade de amostras  
+- Taxa de aprendizagem  
+- Número de épocas  
+- Coeficiente de regularização  
+
+### Uso
+```bash
+python fine_tuning_new.py --dataset <DATASET> --phis <ESPAÇO> --newTask <VALOR>
+```
+
+### Exemplo
+```bash
+python fine_tuning_new.py --dataset stl9 --phis resnet18 --newTask 1
+```
+
+---
+
+# 8. Análises e Visualizações
+
+Este repositório contém notebooks auxiliares:
+
+- **entropia.ipynb**  
+  Avalia o comportamento das diferentes estratégias de seleção.
+
+- **graficos.ipynb**  
+  Gera gráficos comparando:
+  - TURTLE vs Fine-Tuning  
+  - Diferentes espaços de representação (ResNet-18, VGG-11, DIALNet)  
+  - Hiperparâmetros selecionados  
+  - Resultados no CIFAR-9 e STL-9  
+
+---
