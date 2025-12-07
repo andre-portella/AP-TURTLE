@@ -4,9 +4,15 @@ from torch import nn
 import torch.nn.functional as F
 import numpy as np
 import os
+import sys
 from scipy.optimize import linear_sum_assignment
 from utils import datasets_to_c
+from samplers import RandomSampler, UncertaintySampler, UniformSampler
 
+
+# ===========================================================
+# Carrega task encoder (mantido, apenas organizado)
+# ===========================================================
 def load_task_encoder(checkpoint_path, feature_dims, C, device):
     checkpoint = torch.load(checkpoint_path, map_location=device)
     task_encoder = [nn.Linear(d, C).to(device) for d in feature_dims]
@@ -15,6 +21,9 @@ def load_task_encoder(checkpoint_path, feature_dims, C, device):
     return task_encoder
 
 
+# ===========================================================
+# Combina classificadores (mantido, apenas organizado)
+# ===========================================================
 def task_encoding(Zs, task_encoder):
     assert len(Zs) == len(task_encoder)
     label_per_space = [F.softmax(task_phi(z), dim=1) for task_phi, z in zip(task_encoder, Zs)]
@@ -22,33 +31,150 @@ def task_encoding(Zs, task_encoder):
     return labels, label_per_space
 
 
+# ===========================================================
+# Função auxiliar: salva arquivos de rótulos
+# ===========================================================
+def save_labels(save_dir, prefix, dataset, Kname, aligned_tensor, original_tensor, idxs):
+    torch.save(aligned_tensor, os.path.join(save_dir, f"{prefix}_aligned_{dataset}_{Kname}.pt"))
+    torch.save(original_tensor, os.path.join(save_dir, f"{prefix}_original_{dataset}_{Kname}.pt"))
+    torch.save(idxs, os.path.join(save_dir, f"{prefix}_indexes_{dataset}_{Kname}.pt"))
+
+    print(f" - {prefix}: {os.path.join(save_dir, f'{prefix}_aligned_{dataset}_{Kname}.pt')}")
+    print(f" - {prefix}: {os.path.join(save_dir, f'{prefix}_original_{dataset}_{Kname}.pt')}")
+    print(f" - {prefix}: {os.path.join(save_dir, f'{prefix}_indexes_{dataset}_{Kname}.pt')}")
+
+
+# ===========================================================
+# Processa UM valor de K (pode ser abs ou pct)
+# ===========================================================
+def process_K(Kvalue, mode, N, Zs_train, phis, dataset, root_dir, device,
+              task_encoder, feature_dims, combined, entropy, uncertainty,
+              y_gt_train, match, inverse_match, pred_labels_train):
+
+    if mode == "pct":
+        num_samples = int((Kvalue / 100.0) * N)
+        ratio = Kvalue / 100.0
+        Kname = f"Kpct_{Kvalue}"
+    else:
+        num_samples = Kvalue
+        ratio = num_samples / N
+        Kname = f"Kabs_{Kvalue}"
+
+    print(f"\n==========================")
+    print(f"Processando {Kname}: num_samples = {num_samples}")
+    print("==========================\n")
+
+    save_dir = f"{root_dir}/results/{len(phis)}space/{'_'.join(phis)}/{Kname}/"
+    os.makedirs(save_dir, exist_ok=True)
+
+    # ===========================================================
+    # Samplers
+    # ===========================================================
+    sampler_uncertainty = UncertaintySampler(ratio=ratio)
+    selected_unc = sampler_uncertainty.select(uncertainty.detach().cpu().numpy())
+
+    sampler_uniform = UniformSampler(ratio=ratio)
+    selected_unif = sampler_uniform.select(entropy.detach().cpu().numpy())
+
+    sampler_random = RandomSampler(ratio=ratio)
+
+    # ===========================================================
+    # Alinhamento
+    # ===========================================================
+    labels_train_aligned = match[pred_labels_train]
+    labels_train_original = pred_labels_train.copy()
+    y_gt_train_aligned_to_original = inverse_match[y_gt_train]
+
+    # ===========================================================
+    # UNCERTAINTY
+    # ===========================================================
+    labels_aligned_unc = labels_train_aligned.copy()
+    labels_orig_unc = labels_train_original.copy()
+
+    labels_aligned_unc[selected_unc] = y_gt_train[selected_unc]
+    labels_orig_unc[selected_unc] = y_gt_train_aligned_to_original[selected_unc]
+
+    save_labels(
+        save_dir, "uncertain", dataset, Kname,
+        torch.from_numpy(labels_aligned_unc).long().to(device),
+        torch.from_numpy(labels_orig_unc).long().to(device),
+        selected_unc
+    )
+
+    # ===========================================================
+    # UNIFORM
+    # ===========================================================
+    labels_aligned_unif = labels_train_aligned.copy()
+    labels_orig_unif = labels_train_original.copy()
+
+    labels_aligned_unif[selected_unif] = y_gt_train[selected_unif]
+    labels_orig_unif[selected_unif] = y_gt_train_aligned_to_original[selected_unif]
+
+    save_labels(
+        save_dir, "uniform", dataset, Kname,
+        torch.from_numpy(labels_aligned_unif).long().to(device),
+        torch.from_numpy(labels_orig_unif).long().to(device),
+        selected_unif
+    )
+
+    # ===========================================================
+    # RANDOM — 10 REPETIÇÕES
+    # ===========================================================
+    for i in range(1, 11):
+        print(f"\n===> Gerando amostragem aleatória {i}/10 ({Kname})")
+
+        selected_rand = sampler_random.select(len(Zs_train[0]))
+
+        labels_orig_rand = labels_train_original.copy()
+        labels_aligned_rand = labels_train_aligned.copy()
+
+        labels_orig_rand[selected_rand] = y_gt_train_aligned_to_original[selected_rand]
+        labels_aligned_rand[selected_rand] = y_gt_train[selected_rand]
+
+        save_labels(
+            save_dir, f"random_{i}", dataset, Kname,
+            torch.from_numpy(labels_aligned_rand).long().to(device),
+            torch.from_numpy(labels_orig_rand).long().to(device),
+            selected_rand
+        )
+
+
+# ===========================================================
+# MAIN
+# ===========================================================
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset", type=str, required=True)
     parser.add_argument("--phis", nargs="+", required=True)
-    parser.add_argument("--num_samples", type=int, default=10, help="Número de amostras mais incertas")
     parser.add_argument("--root_dir", type=str, default="./data")
     parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
+
+
+    parser.add_argument("--k_pct", nargs="+", type=float, default=[0.1, 1, 10, 20, 30])
+    parser.add_argument("--k_abs", nargs="+", type=int, default=[1, 10, 100, 1000])
+
     args = parser.parse_args()
 
     dataset = args.dataset
     phis = args.phis
     root_dir = args.root_dir
     device = args.device
-    num_samples = args.num_samples
 
     C = datasets_to_c[dataset]
 
     # ===========================================================
-    # 1. Carregar representações e rótulos
+    # 1. Carregar representações
     # ===========================================================
-    Zs_train = [np.load(f"{root_dir}/representations/{phi}/{dataset}_train.npy").astype(np.float32) for phi in phis]
-    # Zs_val = [np.load(f"{root_dir}/representations/{phi}/{dataset}_val.npy").astype(np.float32) for phi in phis]
+    Zs_train = [np.load(f"{root_dir}/representations/{phi}/{dataset}_train.npy").astype(np.float32)
+                for phi in phis]
     y_gt_train = np.load(f"{root_dir}/labels/{dataset}_train.npy")
-    # y_gt_val = np.load(f"{root_dir}/labels/{dataset}_val.npy")
 
-    feature_dims = [Z_train.shape[1] for Z_train in Zs_train]
-    checkpoint_path = f"{root_dir}/task_checkpoints/{len(phis)}space/{'_'.join(phis)}/{dataset}/turtle_{'_'.join(phis)}_innerlr0.001_outerlr0.001_T6000_M10_coldstart_gamma10.0_bs10000_seed42.pt"
+    feature_dims = [Z.shape[1] for Z in Zs_train]
+
+    checkpoint_path = (
+        f"{root_dir}/task_checkpoints/{len(phis)}space/{'_'.join(phis)}/{dataset}/"
+        f"turtle_{'_'.join(phis)}_innerlr0.001_outerlr0.001_T6000_M10_coldstart_gamma10.0_bs10000_seed42.pt"
+    )
 
     # ===========================================================
     # 2. Carregar task encoder
@@ -56,176 +182,90 @@ def main():
     task_encoder = load_task_encoder(checkpoint_path, feature_dims, C, device)
     print(f"Task encoder carregado de {checkpoint_path}")
 
-    with torch.no_grad():
-        # Zs_train é uma lista com as representações de cada espaço (dinov2, clip)
-        # task encoder recebe essa lista e retorna:
-        # vetor de predições combinadas
-        # lista de label, onde cada item é um tensor de probabilidades (N,C)(N amostras, C classes) produzida por cada espaço
-        Zs_train_torch = [torch.from_numpy(Z_train).to(args.device) for Z_train in Zs_train]
-        _, label_per_space_train = task_encoding(Zs_train_torch, task_encoder)
+    # ===========================================================
+    # 3. Executar predições, entropia, incerteza
+    # ===========================================================
+    Zs_train_torch = [torch.from_numpy(Z).to(device) for Z in Zs_train]
 
-        print(label_per_space_train)
+    _, label_per_space = task_encoding(Zs_train_torch, task_encoder)
 
-        # ===========================================================
-        # 3. Combinação das probabilidades
-        # ===========================================================
-        # Suponha 2 espaços (K=2), 2 classes (C=2):
+    if len(label_per_space) == 1:
+        combined = label_per_space[0]
+    else:
+        combined = torch.stack(label_per_space).mean(dim=0)
+        combined = combined / combined.sum(dim=1, keepdim=True)
 
-        # label_per_space_train[0] = tensor([[0.8, 0.2],
-        #                                    [0.3, 0.7]])
+    # ENTROPIA
+    entropies = [-(p * torch.log(torch.clamp(p, min=sys.float_info.epsilon))).sum(dim=1)
+                 for p in label_per_space]
 
-        # label_per_space_train[1] = tensor([[0.9, 0.1],
-        #                                    [0.4, 0.6]])
+    entropy = torch.stack(entropies).mean(dim=0) if len(entropies) > 1 else entropies[0]
 
-        # como garantir que as colunas são correspondentes entre os diferentes classificadores lineares?
-        #é garantida pela função objetivo!
+    # ===========================================================
+    # Salvar entropia (por espaço e média final)
+    # ===========================================================
+    entropy_dir = f"{root_dir}/results/{len(phis)}space/{'_'.join(phis)}/"
+    os.makedirs(entropy_dir, exist_ok=True)
 
-        # como passar os embeddings para o classificador linear final?
+    # Salvar entropia média (final)
+    torch.save(entropy.cpu(), os.path.join(entropy_dir, f"entropy_mean_{dataset}.pt"))
 
-        # Produto entre classificadores (cada phi contribui com suas probabilidades)
-        # vetor de 1s por ser elemento neutro da multiplicação
-        # multiplicação elemento a elemento
-        combined = torch.ones_like(label_per_space_train[0])
-        for probs in label_per_space_train:
-            combined *= probs
-        combined = combined / combined.sum(dim=1, keepdim=True)  # normalização
+    # # Se houver múltiplos espaços de representação, salvar a entropia individual
+    # if len(entropies) > 1:
+    #     for i, ent in enumerate(entropies):
+    #         torch.save(ent.cpu(), os.path.join(entropy_dir, f"entropy_space{i+1}_{dataset}.pt"))
 
-        # ===========================================================
-        # 4. Incerteza
-        # ===========================================================
-        # combined = tensor([
-        #   [0.80, 0.10, 0.10],  # amostra 1 - confiante na classe 0
-        #   [0.34, 0.33, 0.33],  # amostra 2 - indecisa
-        #   [0.05, 0.05, 0.90],  # amostra 3 - confiante na classe 2
-        # ])
+    print(f"Entropias salvas em {entropy_dir}")
 
-        # values = tensor([0.80, 0.34, 0.90])   # maior probabilidade por amostra
+    # KL + ENTROPIA
+    if len(label_per_space) > 1:
+        kl = torch.stack([
+            (p * (torch.log(p + 1e-12) - torch.log(combined + 1e-12))).sum(dim=1)
+            for p in label_per_space
+        ]).mean(dim=0)
+        uncertainty = kl * entropy
+    else:
+        uncertainty = entropy
 
-        # incerteza = tensor([0.2, 0.66, 0.10])
-        uncertainty = 1 - combined.max(dim=1).values
+    # ===========================================================
+    # alinhamento
+    # ===========================================================
+    pred_labels_train = combined.argmax(dim=1).cpu().numpy()
 
-        # Seleciona as N amostras mais incertas
-        topk = torch.topk(uncertainty, k=num_samples)
+    D = max(pred_labels_train.max(), y_gt_train.max()) + 1
+    w = np.zeros((D, D), dtype=np.int64)
 
-        #trazer para CPU por conta do numpy
-        indices_mais_incertos = topk.indices.cpu().numpy()
+    for i in range(pred_labels_train.size):
+        w[pred_labels_train[i], y_gt_train[i]] += 1
 
-        # torch.topk(x, 3)
-        # torch.return_types.topk(values=tensor([5., 4., 3.]), indices=tensor([4, 3, 2]))
+    row_ind, col_ind = linear_sum_assignment(w.max() - w)
 
-        valores_incerteza = topk.values.cpu().numpy()
+    match = np.zeros(D, dtype=np.int64)
+    for r, c in zip(row_ind, col_ind):
+        match[r] = c
 
-        print("Índices das amostras mais incertas (para rotulação manual - conjunto de treino):")
-        for idx, u in zip(indices_mais_incertos, valores_incerteza):
-            print(f"  Amostra {idx}: Incerteza = {u:.6f}")
+    inverse_match = np.zeros_like(match)
+    for pred, real in enumerate(match):
+        inverse_match[real] = pred
 
-        # ===========================================================
-        # 5. Pseudo-labels e alinhamento
-        # ===========================================================
-        pred_labels_train = combined.argmax(dim=1).cpu().numpy()
+    # ===========================================================
+    # 4. Processar TODOS OS Ks (pct + abs)
+    # ===========================================================
+    N = len(Zs_train[0])
 
-        # A matriz w[i, j] vai contar quantas vezes o cluster previsto i correspondeu à classe real j
-        # Isso ajuda a identificar o melhor mapeamento entre clusters e classes verdadeiras.
-        D = max(pred_labels_train.max(), y_gt_train.max()) + 1
-        w = np.zeros((D, D), dtype=np.int64)
-        for i in range(pred_labels_train.size):
-            w[pred_labels_train[i], y_gt_train[i]] += 1
+    for k in args.k_pct:
+        process_K(k, "pct", N, Zs_train, phis, dataset, root_dir, device,
+                  task_encoder, feature_dims, combined, entropy, uncertainty,
+                  y_gt_train, match, inverse_match, pred_labels_train)
 
-        # Exemplo:
-        # pred_labels_train = [1, 1, 0]
-        # y_gt_train        = [0, 1, 2]
-        #
-        # w antes:
-        # [[0, 0, 0],
-        #  [0, 0, 0],
-        #  [0, 0, 0]]
-        #
-        # w depois:
-        # [[0, 0, 1], atribui 0 e era classe 2
-        #  [1, 1, 0],
-        #  [0, 0, 0]]
-
-        # 3. Resolver assignment problem
-        #Como atribuir n trabalhadores a n tarefas de forma que o custo total seja o menor possível
-        # hungarian trabalha com minimização, por isso W.max() - w
+    for k in args.k_abs:
+        process_K(k, "abs", N, Zs_train, phis, dataset, root_dir, device,
+                  task_encoder, feature_dims, combined, entropy, uncertainty,
+                  y_gt_train, match, inverse_match, pred_labels_train)
 
 
-        row_ind, col_ind = linear_sum_assignment(w.max() - w)
-        # Exemplo:
-        # row_ind = [0, 1, 2]
-        # col_ind = [2, 1, 0]
-
-        # Criar mapeamento de clusters previstos para labels reais
-        match = np.zeros(D, dtype=np.int64)
-        for r, c in zip(row_ind, col_ind):
-            match[r] = c
-            
-        # match = [2, 1, 0]
-        # significa:
-        # se cluster = 0, ele corresponde à classe real 2
-        # se cluster = 1, ele corresponde à classe real 1
-        # se cluster = 2, ele corresponde à classe real 0
-
-        # Criar o mapeamento inverso: da classe real -> cluster predito
-        inverse_match = np.zeros_like(match)
-        for pred, real in enumerate(match):
-            inverse_match[real] = pred
-
-        # ===========================================================
-        # 5a. Alinhar previsões
-        # ===========================================================
-        # Alinhar previsões
-        labels_train_aligned = match[pred_labels_train]
-        # Exemplo:
-        # pred_labels_train = [1, 1, 0]
-        # match = [2, 1, 0] ==> 0 vira 2; 1 vira 1; 2 vira 0
-        # labels_train_indices = [1, 1, 2]
-
-        # Substituir amostras mais incertas pelos labels reais
-        labels_train_aligned[indices_mais_incertos] = y_gt_train[indices_mais_incertos]
-
-
-        # ===========================================================
-        # 5b. Criar versões alinhada e não alinhada
-        # ===========================================================
-
-        # Versão: não alinhada (sem aplicar o match)
-        labels_train_original = pred_labels_train.copy()
-
-        # Converter rótulos reais (ground truth) para o espaço dos clusters originais
-        y_gt_train_aligned_to_original = inverse_match[y_gt_train]
-
-        # Substituir amostras mais incertas pelos rótulos reais convertidos
-        labels_train_original[indices_mais_incertos] = y_gt_train_aligned_to_original[indices_mais_incertos]
-
-                
-        # Converter para tensor LongTensor para cross_entropy
-        labels_train_aligned_tensor = torch.from_numpy(labels_train_aligned).long().to(device)
-        labels_train_original_tensor = torch.from_numpy(labels_train_original).long().to(device)
-
-
-        # ===========================================================
-        # 6. Salvar representações combinadas de TREINO
-        # ===========================================================
-        save_dir = f"{root_dir}/results/{len(phis)}space/{'_'.join(phis)}/"
-        os.makedirs(save_dir, exist_ok=True)
-
-        torch.save(labels_train_aligned_tensor, os.path.join(save_dir, f"labels_train_aligned_{dataset}.pt"))
-        torch.save(labels_train_original_tensor, os.path.join(save_dir, f"labels_train_original_{dataset}.pt"))
-
-        print(f"\nArquivos salvos:")
-        print(f" - Alinhado com ground truth: {os.path.join(save_dir, f'labels_train_aligned_{dataset}.pt')}")
-        print(f" - Original (não alinhado):  {os.path.join(save_dir, f'labels_train_original_{dataset}.pt')}")
-        # # ===========================================================
-        # # 7. Salvar representações combinadas de TESTE
-        # # ===========================================================
-        # Zs_val_torch = [torch.from_numpy(Z_val).to(device) for Z_val in Zs_val]
-        # y_val_tensor = torch.from_numpy(y_gt_val).long().squeeze().to(device)
-        # representations_combined_test = [y_val_tensor] + Zs_val_torch
-        # save_test = f"{root_dir}/results/{len(phis)}space/{'_'.join(phis)}/representations_combined_{dataset}_test.pt"
-        # torch.save(representations_combined_test, save_test)
-        # print(f"Salvo: {save_test}")
-
-
+# ===========================================================
+# RUN
+# ===========================================================
 if __name__ == "__main__":
     main()
