@@ -69,6 +69,7 @@ def get_ari(y_pred, y_true):
 datasets = [
     "food101",
     "cifar10",
+    "cifar9",
     "cifar100",
     "birdsnap",
     "sun397",
@@ -81,6 +82,7 @@ datasets = [
     "mnist",
     "fer2013",
     "stl10",
+    "stl9",
     "eurosat",
     "resisc45",
     "gtsrb",
@@ -93,12 +95,14 @@ datasets = [
     "hatefulmemes",
     "sst",
     "imagenet",
-    "cub"
+    "cub",
+    "officehome-Art"
 ]
 
 datasets_to_c = {
     "food101": 101,
     "cifar10": 10,
+    "cifar9": 9,
     "cifar100": 100,
     "cifar10020": 20,
     "birdsnap": 500,
@@ -112,6 +116,7 @@ datasets_to_c = {
     "mnist": 10,
     "fer2013": 7,
     "stl10": 10,
+    "stl9": 9,
     "eurosat": 10,
     "resisc45": 45,
     "gtsrb": 43,
@@ -124,6 +129,7 @@ datasets_to_c = {
     "hatefulmemes": 2,
     "sst": 2,
     "imagenet": 1000,
+    "officehome-Art": 65
 }
 
 # food101         training set  75750, test set 25250  

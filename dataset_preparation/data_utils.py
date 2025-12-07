@@ -5,6 +5,7 @@ import torchvision.transforms as transforms
 from torch.utils.data import DataLoader, ConcatDataset, Subset
 import torch
 import numpy as np
+from .datasets import CIFAR9, STL9
 
 
 IMAGENET_DEFAULT_MEAN = (0.485, 0.456, 0.406)
@@ -58,9 +59,12 @@ def get_default_transforms():
 
 
 def get_dataloaders(dataset, transform, batch_size, root_dir='data'):
+    
+    
     if transform is None:
         # just dummy resize -> both CLIP and DINO support 224 size of the image
         transform = get_default_transforms()
+    
     train_dataset, val_dataset = get_datasets(dataset, transform, root_dir)
     trainloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=False, num_workers=10)
     valloader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=10)
@@ -70,7 +74,60 @@ def get_dataloaders(dataset, transform, batch_size, root_dir='data'):
 def get_datasets(dataset, transform, root_dir='./data'):
     data_path = os.path.join(root_dir, "datasets")
 
-    if dataset == "food101":
+    # ---------------------------------------------------------------
+    # CIFAR-9 (CIFAR-10 sem "frog" = classe 6)
+    # ---------------------------------------------------------------
+    if dataset == "cifar9":
+        # Carrega o CIFAR-10 completo (10 classes)
+        base_train = dsets.CIFAR10(root=data_path, train=True, transform=transform, download=True)
+        base_val = dsets.CIFAR10(root=data_path, train=False, transform=transform, download=True)
+
+        # Remove classe 6 (frog) e remapeia classes >6
+        def filter_and_remap(data, labels):
+            data_new, labels_new = [], []
+            for img, lbl in zip(data, labels):
+                if lbl == 6:  # remove "frog"
+                    continue
+                new_lbl = lbl if lbl < 6 else lbl - 1
+                data_new.append(img)
+                labels_new.append(new_lbl)
+            return np.array(data_new), np.array(labels_new)
+
+        base_train.data, base_train.targets = filter_and_remap(base_train.data, base_train.targets)
+        base_val.data, base_val.targets = filter_and_remap(base_val.data, base_val.targets)
+
+        train_dataset = base_train
+        val_dataset = base_val
+
+    # ---------------------------------------------------------------
+    # STL-9 (STL-10 sem "monkey" = classe 7)
+    # ---------------------------------------------------------------
+    elif dataset == "stl9":
+        # Carrega o STL-10 completo (10 classes)
+        base_train = dsets.STL10(root=data_path, split='train', transform=transform, download=True)
+        base_val = dsets.STL10(root=data_path, split='test', transform=transform, download=True)
+
+        # Remove classe 7 (monkey) e remapeia classes >7
+        def filter_and_remap(data, labels):
+            data_new, labels_new = [], []
+            for img, lbl in zip(data, labels):
+                if lbl == 7:  # remove "monkey"
+                    continue
+                new_lbl = lbl if lbl < 7 else lbl - 1
+                data_new.append(img)
+                labels_new.append(new_lbl)
+            return np.array(data_new), np.array(labels_new)
+
+        # Aplica o filtro e remapeamento
+        base_train.data, base_train.labels = filter_and_remap(base_train.data, base_train.labels)
+        base_val.data, base_val.labels = filter_and_remap(base_val.data, base_val.labels)
+
+        # Pronto: datasets STL10 com 9 classes (0–8)
+        train_dataset = base_train
+        val_dataset = base_val
+
+
+    elif dataset == "food101":
         train_dataset = dsets.Food101(root=data_path, split="train", transform=transform, download=True)
         val_dataset = dsets.Food101(root=data_path, split="test", transform=transform, download=True)
 

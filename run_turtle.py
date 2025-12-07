@@ -14,7 +14,7 @@ def _parse_args(args):
     # dataset
     parser.add_argument('--dataset', type=str, help="Dataset to run TURTLE", required=True)
     parser.add_argument('--phis', type=str, default=["clipvitL14", "dinov2"], nargs='+', help="Representation spaces to run TURTLE", 
-                            choices=['clipRN50', 'clipRN101', 'clipRN50x4', 'clipRN50x16', 'clipRN50x64', 'clipvitB32', 'clipvitB16', 'clipvitL14', 'dinov2'])
+                            choices=['clipRN50', 'clipRN101', 'clipRN50x4', 'clipRN50x16', 'clipRN50x64', 'clipvitB32', 'clipvitB16', 'clipvitL14', 'dinov2', 'resnet18', 'vgg11', 'dialnet'])
     # training
     parser.add_argument('--gamma', type=float, default=10., help='Hyperparameter for entropy regularization in Eq. (12)')
     parser.add_argument('--T', type=int, default=6000, help='Number of outer iterations to train task encoder')

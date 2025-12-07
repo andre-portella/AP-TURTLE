@@ -6,14 +6,22 @@ import numpy as np
 import torch
 import clip
 
+import torchvision.transforms as transforms
+import torchvision.models as models
+
 from dataset_preparation.data_utils import get_dataloaders, _convert_image_to_rgb, _safe_to_tensor
 from utils import seed_everything
+
+
 
 def _parse_args(args):
     parser = argparse.ArgumentParser()
     parser.add_argument('--dataset', type=str, help="Dataset to precompute embeddings")
-    parser.add_argument('--phis', type=str, default="clipvitL14", help="Representation spaces to precompute", 
-                            choices=['clipRN50', 'clipRN101', 'clipRN50x4', 'clipRN50x16', 'clipRN50x64', 'clipvitB32', 'clipvitB16', 'clipvitL14', 'dinov2'])
+    parser.add_argument('--phis', type=str, default="clipvitL14",
+                    help="Representation space (model) to precompute",
+                    choices=['clipRN50', 'clipRN101', 'clipRN50x4', 'clipRN50x16',
+                             'clipRN50x64', 'clipvitB32', 'clipvitB16', 'clipvitL14',
+                             'dinov2', 'resnet18', 'resnet50',  'vgg11'])
     parser.add_argument('--batch_size', type=int, default=256)
     parser.add_argument('--root_dir', type=str, default="data", help='Root dir to store everything')
     parser.add_argument('--device', type=str, default="cuda", help="cuda or cpu")
@@ -45,6 +53,38 @@ def run(args=None):
         model.eval()
         print("Model parameters:", f"{np.sum([int(np.prod(p.shape)) for p in model.parameters()]):,}")
         preprocess = None
+
+    elif args.phis == 'resnet18':
+        print("Using ResNet-18 pretrained on ImageNet")
+        model = models.resnet18(pretrained=True)
+        model.fc = torch.nn.Identity()  # remove o classificador
+        model = model.to(device)
+        model.eval()
+        preprocess = transforms.Compose([
+            transforms.Resize(256, interpolation=transforms.InterpolationMode.BICUBIC),
+            transforms.CenterCrop(224),
+            _convert_image_to_rgb,
+            _safe_to_tensor,
+            transforms.Normalize(mean=(0.485, 0.456, 0.406),
+                                 std=(0.229, 0.224, 0.225))
+        ])
+
+    elif args.phis == 'vgg11':
+        print("Using VGG-11 pretrained on ImageNet")
+        model = models.vgg11(weights="IMAGENET1K_V1")
+        model.classifier[6] = torch.nn.Identity()  # remove o classificador final
+        model = model.to(device)
+        model.eval()
+
+        preprocess = transforms.Compose([
+            transforms.Resize(256, interpolation=transforms.InterpolationMode.BICUBIC),
+            transforms.CenterCrop(224),
+            _convert_image_to_rgb,
+            _safe_to_tensor,
+            transforms.Normalize(mean=(0.485, 0.456, 0.406),
+                                 std=(0.229, 0.224, 0.225))
+        ])
+
     else:
         ckpt_dir = os.path.join(args.root_dir, "checkpoints/clip")
         model, preprocess = clip.load(phi_to_name[args.phis], device=device, download_root=ckpt_dir)
