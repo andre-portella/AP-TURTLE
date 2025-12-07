@@ -4,8 +4,8 @@ Este repositório reúne o código, experimentos e análises desenvolvidos para 
 
 Os principais trabalhos de referência são:
 
-- **Low Budget Label Query** — *Saltori et al.*  
-- **TURTLE** — Método para clustering e seleção de amostras usando múltiplos espaços de features.
+- **Low-budget Label Query through Domain Alignment Enforcement** - (https://doi.org/10.1016/j.cviu.2022.103485) publicado no Computer Vision and Image Understanding (**CVIU**) journal, 2022.
+- **Let Go of Your Labels with Unsupervised Transfer** — (https://arxiv.org/abs/2406.07236) publicada na ICML, 2024. Método para clustering e seleção de amostras usando múltiplos espaços de features.
 
 ---
 
