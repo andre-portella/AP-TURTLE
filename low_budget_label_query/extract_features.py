@@ -72,8 +72,8 @@ def extract_features_and_save(data, model, split_name, batch_size=64, num_worker
     targets_np = all_targets.numpy()
 
     # Diretórios de saída
-    dir_representations = "../turtle/data/representations/dialnet"
-    dir_labels = "../turtle/labels"
+    dir_representations = "../data/representations/dialnet"
+    dir_labels = "../labels"
 
     os.makedirs(dir_representations, exist_ok=True)
     os.makedirs(dir_labels, exist_ok=True)
