@@ -8,6 +8,18 @@ Referências desse projeto:
 - **Let Go of Your Labels with Unsupervised Transfer** - (https://arxiv.org/abs/2406.07236) publicada na ICML, 2024.
 
 ---
+# Requisitos
+
+- tqdm
+- numpy
+- torch
+- clip
+- torchvision
+- scipy
+- scikit-learn
+- pandas
+
+
 
 # 1. Visão Geral do Pipeline
 
@@ -71,7 +83,7 @@ low_budget_label_query
 Exemplo:
 
 ```bash
-python digits.py --root data/digits --source STL9 --target CIFAR9     --arch dialnet --mode single --scorer entropy --sampler random
+python digits.py --root data/digits --source STL9 --target CIFAR9 --arch dialnet --mode single --scorer entropy --sampler random
 ```
 
 > *Observação:* `scorer` e `sampler` não são usados no modo single, mas devem ser fornecidos para evitar erros.
@@ -79,7 +91,7 @@ python digits.py --root data/digits --source STL9 --target CIFAR9     --arch dia
 ### Passo 3 — Extrair as features com o modelo treinado
 
 ```bash
-python extract_features.py --source STL9 --target CIFAR9     --data-root data/digits --num-classes 9     --model-arch-type cifar9-stl9
+python extract_features.py --source STL9 --target CIFAR9 --data-root data/digits --num-classes 9 --model-arch-type cifar9-stl9
 ```
 
 As representações serão salvas em `data/`.
@@ -138,12 +150,12 @@ Os resultados são salvos automaticamente, incluindo métricas e hiperparâmetro
 
 ### Uso
 ```bash
-python fine_tuning_new.py --dataset <DATASET> --phis <ESPAÇO> --newTask <VALOR>
+python fine_tuning.py --dataset <DATASET> --phis <ESPAÇO> --newTask <VALOR>
 ```
 
 ### Exemplo
 ```bash
-python fine_tuning_new.py --dataset stl9 --phis resnet18 --newTask 1
+python fine_tuning.py --dataset stl9 --phis resnet18 --newTask 1
 ```
 
 ---
