@@ -1,11 +1,11 @@
 # Projeto da Disciplina de Aprendizado Profundo para Reconhecimento Visual
 
-Este repositório reúne o código, experimentos e análises desenvolvidos para a disciplina de **Aprendizado Profundo**, com foco em métodos modernos de **clustering**, **seleção ativa de amostras** e **aprendizado com múltiplos espaços de representação**.
+Este repositório reúne o código, experimentos e análises desenvolvidos para a disciplina de **Aprendizado Profundo**, com foco na aplicação de transferência não supervisionada em associação à consulta por rótulo de baixo custo.
 
-Os principais trabalhos de referência são:
+Referências desse projeto:
 
 - **Low-budget Label Query through Domain Alignment Enforcement** - (https://doi.org/10.1016/j.cviu.2022.103485) publicado no Computer Vision and Image Understanding (**CVIU**) journal, 2022.
-- **Let Go of Your Labels with Unsupervised Transfer** — (https://arxiv.org/abs/2406.07236) publicada na ICML, 2024. Método para clustering e seleção de amostras usando múltiplos espaços de features.
+- **Let Go of Your Labels with Unsupervised Transfer** - (https://arxiv.org/abs/2406.07236) publicada na ICML, 2024.
 
 ---
 
