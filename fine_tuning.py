@@ -283,7 +283,7 @@ def main(args=None):
         "K", "strategy", "lr", "gamma", "epochs", "acc", "acc_std"
     ])
 
-    grid_result = f"results_grid_search/grid_results_{dataset}_{'_'.join(phis)}_{newTask}.csv"
+    grid_result = f"grid_search_results/grid_results_{dataset}_{'_'.join(phis)}_{newTask}.csv"
 
     df.to_csv(grid_result, index=False)
 
